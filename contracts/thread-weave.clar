@@ -520,3 +520,99 @@
     (ok true)
   )
 )
+
+;; TIPPING ECONOMY
+
+;; Send STX tip to thread author with platform fee
+(define-public (tip-thread (thread-id uint) (amount uint))
+  (begin
+    ;; Explicit validation of thread-id
+    (asserts! (> thread-id u0) ERR-NOT-FOUND)
+    (asserts! (<= thread-id (var-get thread-counter)) ERR-NOT-FOUND)
+    
+    (let ((thread-info (unwrap! (get-thread thread-id) ERR-NOT-FOUND))
+          (author (get author thread-info)))
+      
+      (asserts! (> amount u0) ERR-INVALID-TIP)
+      (asserts! (not (is-eq tx-sender author)) ERR-SELF-TIP)
+      
+      (let ((platform-fee (calculate-platform-fee amount))
+            (author-payment (- amount platform-fee)))
+        
+        ;; Transfer tip to author
+        (try! (stx-transfer? author-payment tx-sender author))
+        
+        ;; Platform fee collection
+        (try! (stx-transfer? platform-fee tx-sender (var-get platform-treasury)))
+        
+        ;; Update thread tip tracking
+        (map-set threads
+          { thread-id: thread-id }
+          (merge thread-info { tips-received: (+ (get tips-received thread-info) amount) })
+        )
+        
+        ;; Update reputation metrics
+        (let ((sender-rep (get-user-reputation tx-sender))
+              (author-rep (get-user-reputation author)))
+          
+          (map-set user-reputation
+            { user: tx-sender }
+            (merge sender-rep { tips-sent: (+ (get tips-sent sender-rep) amount) })
+          )
+          
+          (map-set user-reputation
+            { user: author }
+            (merge author-rep { tips-received: (+ (get tips-received author-rep) amount) })
+          )
+        )
+        
+        (ok true)
+      )
+    )
+  )
+)
+
+;; Send STX tip to reply author with platform fee
+(define-public (tip-reply (reply-id uint) (amount uint))
+  (let ((reply-info (unwrap! (get-reply reply-id) ERR-NOT-FOUND))
+        (author (get author reply-info)))
+    
+    (asserts! (is-valid-reply-id reply-id) ERR-NOT-FOUND)
+    (asserts! (> amount u0) ERR-INVALID-TIP)
+    (asserts! (not (is-eq tx-sender author)) ERR-SELF-TIP)
+    
+    (let ((platform-fee (calculate-platform-fee amount))
+          (author-payment (- amount platform-fee))
+          (validated-reply-id reply-id))
+      
+      ;; Transfer tip to author
+      (try! (stx-transfer? author-payment tx-sender author))
+      
+      ;; Platform fee collection
+      (try! (stx-transfer? platform-fee tx-sender (var-get platform-treasury)))
+      
+      ;; Update reply tip tracking
+      (map-set replies
+        { reply-id: validated-reply-id }
+        (merge reply-info { tips-received: (+ (get tips-received reply-info) amount) })
+      )
+      
+      ;; Update reputation metrics
+      (let ((sender-rep (get-user-reputation tx-sender))
+            (author-rep (get-user-reputation author)))
+        
+        (map-set user-reputation
+          { user: tx-sender }
+          (merge sender-rep { tips-sent: (+ (get tips-sent sender-rep) amount) })
+        )
+        
+        (map-set user-reputation
+          { user: author }
+          (merge author-rep { tips-received: (+ (get tips-received author-rep) amount) })
+        )
+      )
+      
+      (ok true)
+    )
+  )
+)
