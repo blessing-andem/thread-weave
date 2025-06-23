@@ -412,3 +412,111 @@
     )
   )
 )
+
+;; VOTING SYSTEM
+
+;; Vote on thread content with reputation impact
+(define-public (vote-thread (thread-id uint) (is-upvote bool))
+  (let ((thread-info (unwrap! (get-thread thread-id) ERR-NOT-FOUND))
+        (existing-vote (map-get? thread-votes { thread-id: thread-id, voter: tx-sender })))
+    
+    (asserts! (is-user-staked tx-sender) ERR-INSUFFICIENT-STAKE)
+    (asserts! (is-none existing-vote) ERR-ALREADY-VOTED)
+    (asserts! (not (is-eq tx-sender (get author thread-info))) ERR-UNAUTHORIZED)
+    
+    ;; Record vote
+    (map-set thread-votes
+      { thread-id: thread-id, voter: tx-sender }
+      { vote-type: is-upvote }
+    )
+    
+    ;; Update thread vote counts
+    (let ((new-upvotes (if is-upvote (+ (get upvotes thread-info) u1) (get upvotes thread-info)))
+          (new-downvotes (if is-upvote (get downvotes thread-info) (+ (get downvotes thread-info) u1))))
+      
+      (map-set threads
+        { thread-id: thread-id }
+        (merge thread-info
+          {
+            upvotes: new-upvotes,
+            downvotes: new-downvotes
+          }
+        )
+      )
+      
+      ;; Update author reputation
+      (let ((author-rep (get-user-reputation (get author thread-info))))
+        (map-set user-reputation
+          { user: (get author thread-info) }
+          (merge author-rep
+            {
+              total-upvotes: (if is-upvote (+ (get total-upvotes author-rep) u1) (get total-upvotes author-rep)),
+              total-downvotes: (if is-upvote (get total-downvotes author-rep) (+ (get total-downvotes author-rep) u1)),
+              reputation-score: (calculate-reputation-score
+                (if is-upvote (+ (get total-upvotes author-rep) u1) (get total-upvotes author-rep))
+                (if is-upvote (get total-downvotes author-rep) (+ (get total-downvotes author-rep) u1))
+                (get threads-created author-rep)
+                (get replies-created author-rep)
+              )
+            }
+          )
+        )
+      )
+    )
+    
+    (ok true)
+  )
+)
+
+;; Vote on reply content with reputation impact
+(define-public (vote-reply (reply-id uint) (is-upvote bool))
+  (let ((reply-info (unwrap! (get-reply reply-id) ERR-NOT-FOUND))
+        (existing-vote (map-get? reply-votes { reply-id: reply-id, voter: tx-sender })))
+    
+    (asserts! (is-user-staked tx-sender) ERR-INSUFFICIENT-STAKE)
+    (asserts! (is-none existing-vote) ERR-ALREADY-VOTED)
+    (asserts! (not (is-eq tx-sender (get author reply-info))) ERR-UNAUTHORIZED)
+    
+    ;; Record vote
+    (map-set reply-votes
+      { reply-id: reply-id, voter: tx-sender }
+      { vote-type: is-upvote }
+    )
+    
+    ;; Update reply vote counts
+    (let ((new-upvotes (if is-upvote (+ (get upvotes reply-info) u1) (get upvotes reply-info)))
+          (new-downvotes (if is-upvote (get downvotes reply-info) (+ (get downvotes reply-info) u1))))
+      
+      (map-set replies
+        { reply-id: reply-id }
+        (merge reply-info
+          {
+            upvotes: new-upvotes,
+            downvotes: new-downvotes
+          }
+        )
+      )
+      
+      ;; Update author reputation
+      (let ((author-rep (get-user-reputation (get author reply-info))))
+        (map-set user-reputation
+          { user: (get author reply-info) }
+          (merge author-rep
+            {
+              total-upvotes: (if is-upvote (+ (get total-upvotes author-rep) u1) (get total-upvotes author-rep)),
+              total-downvotes: (if is-upvote (get total-downvotes author-rep) (+ (get total-downvotes author-rep) u1)),
+              reputation-score: (calculate-reputation-score
+                (if is-upvote (+ (get total-upvotes author-rep) u1) (get total-upvotes author-rep))
+                (if is-upvote (get total-downvotes author-rep) (+ (get total-downvotes author-rep) u1))
+                (get threads-created author-rep)
+                (get replies-created author-rep)
+              )
+            }
+          )
+        )
+      )
+    )
+    
+    (ok true)
+  )
+)
