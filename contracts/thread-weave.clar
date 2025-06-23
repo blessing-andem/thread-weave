@@ -702,3 +702,90 @@
     (ok true)
   )
 )
+
+;; Boost thread visibility using staked tokens
+(define-public (boost-thread (thread-id uint) (boost-amount uint))
+  (let ((thread-info (unwrap! (get-thread thread-id) ERR-NOT-FOUND))
+        (current-boost (get-thread-boost thread-id))
+        (stake-info (unwrap! (map-get? user-stakes { user: tx-sender }) ERR-INSUFFICIENT-STAKE)))
+    
+    (asserts! (is-user-staked tx-sender) ERR-INSUFFICIENT-STAKE)
+    (asserts! (<= boost-amount (get amount stake-info)) ERR-INSUFFICIENT-BALANCE)
+    (asserts! (> boost-amount u0) ERR-INVALID-AMOUNT)
+    (asserts! (is-some (get-thread thread-id)) ERR-NOT-FOUND)
+    
+    ;; Update thread boost metrics
+    (let ((verified-thread-id thread-id)
+          (verified-boost-amount boost-amount)
+          (current-boost-amount (get boost-amount current-boost))
+          (current-boosted-by (get boosted-by current-boost)))
+      
+      (map-set thread-boosts
+        { thread-id: verified-thread-id }
+        {
+          boost-amount: (+ current-boost-amount verified-boost-amount),
+          boosted-by: (unwrap! (as-max-len? (append current-boosted-by tx-sender) u20) ERR-UNAUTHORIZED)
+          }
+      )
+    )
+    
+    ;; Allocate staked tokens to boost
+    (map-set user-stakes
+      { user: tx-sender }
+      (merge stake-info { amount: (- (get amount stake-info) boost-amount) })
+    )
+    
+    (ok true)
+  )
+)
+
+;; CONTENT MODERATION
+
+;; Toggle thread lock status (author only)
+(define-public (toggle-thread-lock (thread-id uint))
+  (let ((thread-info (unwrap! (get-thread thread-id) ERR-NOT-FOUND)))
+    (asserts! (is-eq tx-sender (get author thread-info)) ERR-UNAUTHORIZED)
+    
+    (map-set threads
+      { thread-id: thread-id }
+      (merge thread-info { is-locked: (not (get is-locked thread-info)) })
+    )
+    
+    (ok (not (get is-locked thread-info)))
+  )
+)
+
+;; NFT ACHIEVEMENT SYSTEM
+
+;; Mint achievement NFT for viral content creators
+(define-public (mint-milestone-nft (thread-id uint))
+  (let ((thread-info (unwrap! (get-thread thread-id) ERR-NOT-FOUND)))
+    (asserts! (is-eq tx-sender (get author thread-info)) ERR-UNAUTHORIZED)
+    (asserts! (>= (get upvotes thread-info) u100) ERR-UNAUTHORIZED)
+    
+    (try! (nft-mint? thread-milestone thread-id tx-sender))
+    (ok thread-id)
+  )
+)
+
+;; ADMINISTRATIVE FUNCTIONS
+
+;; Update platform fee structure (owner only)
+(define-public (set-platform-fee-rate (new-rate uint))
+  (begin
+    (asserts! (is-eq tx-sender CONTRACT-OWNER) ERR-OWNER-ONLY)
+    (asserts! (<= new-rate u1000) ERR-INVALID-AMOUNT)
+    (var-set platform-fee-rate new-rate)
+    (ok true)
+  )
+)
+
+;; Adjust minimum staking requirements (owner only)
+(define-public (set-min-stake-amount (new-amount uint))
+  (begin
+    (asserts! (is-eq tx-sender CONTRACT-OWNER) ERR-OWNER-ONLY)
+    (asserts! (<= new-amount u1000) ERR-INVALID-AMOUNT)
+    (var-set min-stake-amount new-amount)
+    (ok true)
+  )
+)
