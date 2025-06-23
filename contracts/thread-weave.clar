@@ -96,3 +96,94 @@
     reputation-score: uint
   }
 )
+
+;; Voting system with duplicate prevention
+(define-map thread-votes
+  { thread-id: uint, voter: principal }
+  { vote-type: bool }
+)
+
+(define-map reply-votes
+  { reply-id: uint, voter: principal }
+  { vote-type: bool }
+)
+
+;; Premium access control mechanism
+(define-map premium-access
+  { thread-id: uint, user: principal }
+  { purchased-at: uint }
+)
+
+;; Staking mechanism for platform participation
+(define-map user-stakes
+  { user: principal }
+  { amount: uint, locked-until: uint }
+)
+
+;; Thread boosting with STX allocation
+(define-map thread-boosts
+  { thread-id: uint }
+  { boost-amount: uint, boosted-by: (list 20 principal) }
+)
+
+;; NFT ACHIEVEMENT SYSTEM
+(define-non-fungible-token thread-milestone uint)
+
+;; UTILITY FUNCTIONS
+
+(define-private (get-current-time)
+  stacks-block-height
+)
+
+(define-private (calculate-reputation-score 
+    (upvotes uint) 
+    (downvotes uint) 
+    (thread-count uint) 
+    (reply-count uint))
+  (let ((base-score (+ (* upvotes u10) (* thread-count u5) (* reply-count u2))))
+    (if (> downvotes u0)
+      (/ (* base-score u100) (+ u100 (* downvotes u5)))
+      base-score
+    )
+  )
+)
+
+(define-private (calculate-platform-fee (amount uint))
+  (/ (* amount (var-get platform-fee-rate)) u10000)
+)
+
+(define-private (is-user-staked (user principal))
+  (let ((stake-info (map-get? user-stakes { user: user })))
+    (match stake-info
+      stake (and 
+              (>= (get amount stake) (var-get min-stake-amount))
+              (>= (get-current-time) (get locked-until stake)))
+      false
+    )
+  )
+)
+
+(define-private (is-valid-parent-reply (parent-reply-id uint) (thread-id uint))
+  (match (map-get? replies { reply-id: parent-reply-id })
+    reply-info (is-eq (get thread-id reply-info) thread-id)
+    false
+  )
+)
+
+(define-private (is-valid-reply-id (reply-id uint))
+  (is-some (map-get? replies { reply-id: reply-id }))
+)
+
+(define-private (is-valid-thread-id (thread-id uint))
+  (and 
+    (> thread-id u0) 
+    (<= thread-id (var-get thread-counter))
+    (is-some (map-get? threads { thread-id: thread-id })))
+)
+
+(define-private (is-valid-parent-reply-enhanced (parent-reply-id uint) (thread-id uint))
+  (and 
+    (> parent-reply-id u0)
+    (<= parent-reply-id (var-get reply-counter))
+    (is-valid-parent-reply parent-reply-id thread-id))
+)
