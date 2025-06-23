@@ -616,3 +616,89 @@
     )
   )
 )
+
+;; STAKING SYSTEM
+
+;; Stake STX for platform participation privileges
+(define-public (stake-tokens (amount uint) (lock-duration uint))
+  (let ((current-stake (map-get? user-stakes { user: tx-sender }))
+        (current-time (get-current-time)))
+    
+    (asserts! (>= amount (var-get min-stake-amount)) ERR-INSUFFICIENT-STAKE)
+    (asserts! (> lock-duration u0) ERR-INVALID-AMOUNT)
+    
+    ;; Transfer STX to contract
+    (try! (stx-transfer? amount tx-sender (as-contract tx-sender)))
+    
+    ;; Update or create stake record
+    (match current-stake
+      existing-stake
+      (map-set user-stakes
+        { user: tx-sender }
+        {
+          amount: (+ (get amount existing-stake) amount),
+          locked-until: (+ current-time lock-duration)
+        }
+      )
+      (map-set user-stakes
+        { user: tx-sender }
+        {
+          amount: amount,
+          locked-until: (+ current-time lock-duration)
+        }
+      )
+    )
+    
+    ;; Update staking reputation
+    (let ((current-rep (get-user-reputation tx-sender)))
+      (map-set user-reputation
+        { user: tx-sender }
+        (merge current-rep
+          {
+            staked-amount: (+ (get staked-amount current-rep) amount)
+          }
+        )
+      )
+    )
+    
+    (ok true)
+  )
+)
+
+;; Withdraw staked STX after lock period expires
+(define-public (unstake-tokens (amount uint))
+  (let ((stake-info (unwrap! (map-get? user-stakes { user: tx-sender }) ERR-NOT-FOUND))
+        (current-time (get-current-time)))
+    
+    (asserts! (>= current-time (get locked-until stake-info)) ERR-UNAUTHORIZED)
+    (asserts! (<= amount (get amount stake-info)) ERR-INSUFFICIENT-BALANCE)
+    
+    ;; Return STX to user
+    (try! (as-contract (stx-transfer? amount tx-sender contract-caller)))
+    
+    ;; Update or remove stake record
+    (let ((remaining-amount (- (get amount stake-info) amount)))
+      (if (> remaining-amount u0)
+        (map-set user-stakes
+          { user: tx-sender }
+          (merge stake-info { amount: remaining-amount })
+        )
+        (map-delete user-stakes { user: tx-sender })
+      )
+    )
+    
+    ;; Update reputation
+    (let ((current-rep (get-user-reputation tx-sender)))
+      (map-set user-reputation
+        { user: tx-sender }
+        (merge current-rep
+          {
+            staked-amount: (- (get staked-amount current-rep) amount)
+          }
+        )
+      )
+    )
+    
+    (ok true)
+  )
+)
